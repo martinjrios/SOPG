@@ -23,14 +23,14 @@ int main(void)
 	int32_t bytesRead, returnCode, fd;
     FILE *pDF, *pSF;
     
-    /* Create named fifo. -1 means already exists so no action if already exists */
+    /* Se crea la cola nombrada. -1 significa que ya existe por lo que no requiere realizar accion alguna */
     if ( (returnCode = mknod(FIFO_NAME, S_IFIFO | 0666, 0) ) < -1  )
     {
         printf("Error al crear la cola nombrada: %d\n", returnCode);
         exit(1);
     }
     
-    /* Open named fifo. Blocks until other process opens it */
+    /* Se abre el archivo de cola nombrada. El programa se bloquea hasta que otro proceso realice su apertura */
 	printf("Esperando por escritores...\n");
 	if ( (fd = open(FIFO_NAME, O_RDONLY) ) < 0 )
     {
@@ -38,13 +38,13 @@ int main(void)
         exit(1);
     }
     
-    /* open syscalls returned without error -> other process attached to named fifo */
+    /* La syscall de apertura retorno sin error -> hay otro proceso vinculado a la cola nombrada */
 	printf("Se obtuvo un escritor.\n");
 
-    /* Loop until read syscall returns a value <= 0 */
+    /* Loop hasta que la syscall devuelva un valor <= 0 */
 	do
 	{
-        /* read data into local buffer */
+        /* se leen los datos en un buffer local */
 		if ((bytesRead = read(fd, inputBuffer, BUFFER_SIZE)) == -1)
         {
 			perror("read");
@@ -54,6 +54,7 @@ int main(void)
 			inputBuffer[bytesRead] = '\0';
 			printf("reader: read %d bytes: \"%s\"\n", bytesRead, inputBuffer);
 
+            /* Se parsean los datos recibidos de acuerdo al prefijo */
             if(!strncmp(inputBuffer, DATA_PREFIX, strlen(DATA_PREFIX)))
             {            
                 pDF = fopen( DATA_FILE_NAME, "a" );

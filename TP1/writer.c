@@ -33,7 +33,7 @@ int main(void)
     struct sigaction sa;
 
     sa.sa_handler = sigusr_handler;
-    sa.sa_flags = SA_SIGINFO;//SA_RESTART; //
+    sa.sa_flags = SA_SIGINFO;
     //sygemptyset(&sa.sa_mask);
 
     if(sigaction(SIGUSR1, &sa, NULL) == -1)
@@ -48,14 +48,14 @@ int main(void)
         exit(1);
     }    
 
-    /* Create named fifo. -1 means already exists so no action if already exists */
+    /* Se crea la cola nombrada. -1 significa que ya existe por lo que no requiere realizar accion alguna */
     if ( (returnCode = mknod(FIFO_NAME, S_IFIFO | 0666, 0) ) < -1 )
     {
         printf("Error al crear la cola nombrada: %d\n", returnCode);
         exit(1);
     }
 
-    /* Open named fifo. Blocks until other process opens it */
+    /* Se abre el archivo de cola nombrada. El programa se bloquea hasta que otro proceso realice su apertura */
 	printf("Esperando por lectores...\n");
 	if ( (fd = open(FIFO_NAME, O_WRONLY) ) < 0 )
     {
@@ -63,26 +63,25 @@ int main(void)
         exit(1);
     }
     
-    /* open syscalls returned without error -> other process attached to named fifo */
+    /* La syscall de apertura retorno sin error -> hay otro proceso vinculado a la cola nombrada */
 	printf("Se ha conectado un lector, escribe algo...\n");
 
-    /* Loop forever */
+    /* Loop principal */
 	while (1)
 	{
-        /* Get some text from console */
-        snprintf(outputBuffer, BUFFER_SIZE, "%s", DATA_PREFIX);
-        if( fgets(outputBuffer+BUFFER_OFFSET, BUFFER_SIZE, stdin) == NULL)
+        snprintf(outputBuffer, BUFFER_SIZE, "%s", DATA_PREFIX);     /* Se agrega el prefijo para datos ingresados por el usuario */
+        if( fgets(outputBuffer+BUFFER_OFFSET, BUFFER_SIZE, stdin) == NULL) /* Se obtienen los datos ingresados por un usuario desde la consola */
         {
             perror("fgets");
         }
 
-        if(got_sigusr)
+        if(got_sigusr)  /* Si se envio una señal de usuario, se agrega el prefijo de señal al buffer de salida */
         {            
             sprintf(outputBuffer, "%s%d\n", SIGN_PREFIX, got_sigusr-SIGUSR1+1);
             got_sigusr = 0;
         }      
 
-        /* Write buffer to named fifo. Strlen - 1 to avoid sending \n char */
+        /* Se escribe el buffer a la cola nombrada. Strlen - 1 para evitar enviar el caracter \n */
 		if ((bytesWrote = write(fd, outputBuffer, strlen(outputBuffer)-1)) == -1)
         {
 			perror("write");
