@@ -8,8 +8,8 @@
 #include "SerialManager.h"
 #include "SerialServiceSocket.h"
 
-#define PORT_CIAA		        1
-#define CIAA_BAUDRATE	        115200
+#define PORT_CIAA               1
+#define CIAA_BAUDRATE           115200
 
 #define RCV_DELAY               1       // s
 #define RETRY_DELAY             1       // s
@@ -36,7 +36,9 @@ int unlockSign(int sign);
 void onFailure(pthread_t* socket_thread);
 
 int newFd = -1;
+bool activeSocket = false;
 volatile sig_atomic_t got_sigint = 0, got_sigterm = 0;
+pthread_mutex_t mutexActiveSocket = PTHREAD_MUTEX_INITIALIZER;
 
 void sigint_handler(int sig)
 {
@@ -61,16 +63,27 @@ void *socket_service(void *parameter)
     }
 
     newFd = serial_service_socket_accept();  // Se espera a que se conecte un cliente y se guarda el file descriptor de la conexión
+    pthread_mutex_lock (&mutexActiveSocket);    // Abro sección crítica
+    activeSocket = true;
+    pthread_mutex_unlock (&mutexActiveSocket);  // Cierro sección crítica
 
     while(true)
     {   
         if( (n = serial_service_socket_read(newFd, RxBuff, MAX_RX_BUFF)) < 1 )
         {
+            pthread_mutex_lock (&mutexActiveSocket);    // Abro sección crítica
+            activeSocket = false;
+            pthread_mutex_unlock (&mutexActiveSocket);  // Cierro sección crítica
             serial_service_socket_close(newFd);
+            
             while( (newFd = serial_service_socket_accept()) == -1)
             {
                 sleep(RETRY_DELAY);  // Reintento cada RETRY_DELAY segundos hasta que aparezca una nueva petición de conexión
             }
+
+            pthread_mutex_lock (&mutexActiveSocket);    // Abro sección crítica
+            activeSocket = true;
+            pthread_mutex_unlock (&mutexActiveSocket);  // Cierro sección crítica
         }
         else
         {
@@ -158,14 +171,18 @@ int main(void)
                 error_flag = true;          
             }
 
-            if (newFd > -1)
+            pthread_mutex_lock (&mutexActiveSocket);    // Abro sección crítica
+            if (activeSocket)
             {
                 if( serial_service_socket_close(newFd) )
                 {
                     perror("Error al cerrar el socket");
                     error_flag = true;
                 }
+                else activeSocket = false;
             }         
+            pthread_mutex_unlock (&mutexActiveSocket);  // Cierro sección crítica
+            
             if( serial_service_socket_fd() > -1 )
             {
                 if( serial_service_socket_end() )
@@ -202,11 +219,17 @@ int main(void)
             if (sscanf(RxBuff, TOGGLE_STATE_CMD_FORMAT, &keyN) == sizeof(char))
             {                
                 n = snprintf(TxBuff, MAX_TX_BUFF, KEY_EVENT_OUT, keyN);
-                if (serial_service_socket_send(newFd, TxBuff, n) == n)
+                
+                pthread_mutex_lock (&mutexActiveSocket);  // Abro sección crítica
+                if(activeSocket)
                 {
-                    //printf("Enviado: %s\n", TxBuff);
-                }  
-                else printf("Error al enviar!\n");              
+                    if (serial_service_socket_send(newFd, TxBuff, n) == n)
+                    {
+                        //printf("Enviado: %s\n", TxBuff);
+                    }  
+                    else printf("Error al enviar!\n");              
+                }
+                pthread_mutex_unlock (&mutexActiveSocket);  // Cierro sección crítica
             }                 
         }
         sleep(RCV_DELAY);  // Delay para permitir que se carguen correctamente los datos al buffer del puerto serial
@@ -251,7 +274,13 @@ int unlockSign(int sign)
  */
 void onFailure(pthread_t* pthread)
 {
-    serial_service_socket_close(newFd);
+    pthread_mutex_lock (&mutexActiveSocket);    // Abro sección crítica
+    if(activeSocket)
+    {
+        serial_service_socket_close(newFd);
+    }
+    pthread_mutex_unlock (&mutexActiveSocket);  // Cierro sección crítica
+
     serial_service_socket_end();
     pthread_cancel(*pthread);
     serial_close();    
